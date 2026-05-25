@@ -1,0 +1,1449 @@
+{
+  "name": "Sanad_Omni",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sanad-omni",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "65e075b0-a1a8-4172-ad08-4c9003024056",
+      "name": "Sanad Omni Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        -912,
+        48
+      ],
+      "webhookId": "9da2bd9f-6e7c-4f3d-b857-68b4062fdaf0"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.item;\nconst body = item.json.body || {};\n\nlet route = \"chat\";\nif (body.answers && Object.keys(body.answers).length > 0) {\n    route = \"assessment\";\n} else if (body.type === 'recommendation' || body.needs_recommendation === true || (body.user_profile && !body.message && !body.audio && !body.image)) {\n    route = \"recommendation\";\n}\n\nreturn {\n    json: {\n        ...item.json,\n        route: route,\n        body: body,\n        session_id: body.session_id || 'default_session',\n        profile_id: body.profile_id || body.user_profile?.profile_id || 'unknown_user'\n    },\n    binary: item.binary\n};"
+      },
+      "id": "f753831d-5907-411f-9dea-f764baf07371",
+      "name": "Master Router",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -688,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "assessment",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "assessment"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "recommendation",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "recommendation"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "chat",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "chat"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "195932dc-4bd8-4f1b-9bad-72d8df8a5a12",
+      "name": "Main Route Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -464,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const inputJson = $input.all()[0].json;\nconst body = inputJson.body || inputJson;\nconst answers = body.answers || {};\nconst language = body.language || 'ar';\n\nif (Object.keys(answers).length === 0) {\n  return [{ json: { error: true, error_code: \"MISSING_ANSWERS\", message_ar: \"الإجابات ناقصة.\" } }];\n}\n\nlet social_score = (parseInt(answers.q1_social_interaction) || 0) + (parseInt(answers.q2_eye_contact) || 0) + (parseInt(answers.q3_conversation) || 0);\nlet social_level = social_score >= 7 ? 'عالي' : social_score >= 4 ? 'متوسط' : 'منخفض';\n\nreturn [{ json: { language: language, answers: answers, profile_id: inputJson.profile_id, social_analysis: { score: social_score, level: social_level } } }];"
+      },
+      "id": "62dbed54-27cd-4a1f-8c1c-a1ba803def27",
+      "name": "Calc Social",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $input.all()[0].json;\nif (prev.error) return [{json: prev}];\nconst answers = prev.answers;\nlet sensory_types = [];\nif ((parseInt(answers.q5_auditory) || 0) >= 2) sensory_types.push('سمعية');\nif ((parseInt(answers.q6_visual) || 0) >= 2) sensory_types.push('بصرية');\nif ((parseInt(answers.q7_tactile) || 0) >= 2) sensory_types.push('لمسية');\n\nreturn [{ json: { ...prev, sensory_analysis: { types: sensory_types, severity: sensory_types.length >= 2 ? 'عالية' : 'متوسطة' } } }];"
+      },
+      "id": "c30f2810-26b0-4de3-bef6-a8d2cefcad9e",
+      "name": "Calc Sensory",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -16,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $input.all()[0].json;\nif (prev.error) return [{json: prev}];\nlet support_needed = [];\nif (prev.social_analysis.level === 'منخفض') support_needed.push('اجتماعي');\nif (prev.sensory_analysis.types.length > 0) support_needed.push('حسي');\nif (support_needed.length === 0) support_needed.push('عام');\n\nreturn [{ json: { ...prev, support_analysis: { types: support_needed, primary: support_needed[0] } } }];"
+      },
+      "id": "0ca4b5b6-8666-4f10-9ee2-796fcec9d403",
+      "name": "Calc Support",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $input.all()[0].json;\nif (prev.error) return [{json: prev}];\nconst userProfile = {\n  profile_id: prev.profile_id === 'unknown_user' ? 'user_' + Date.now() : prev.profile_id,\n  language: prev.language,\n  social_analysis: prev.social_analysis,\n  sensory_analysis: prev.sensory_analysis,\n  support_analysis: prev.support_analysis\n};\nreturn [{ json: { status: \"success\", userProfile: userProfile } }];"
+      },
+      "id": "bfa59736-b8d6-4793-bda2-2940b69ce9e2",
+      "name": "Build Profile JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "user_profiles",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "profile_id",
+              "fieldValue": "={{ $json.userProfile.profile_id }}"
+            },
+            {
+              "fieldId": "language",
+              "fieldValue": "={{ $json.userProfile.language }}"
+            },
+            {
+              "fieldId": "social_analysis",
+              "fieldValue": "={{ $json.userProfile.social_analysis }}"
+            },
+            {
+              "fieldId": "sensory_analysis",
+              "fieldValue": "={{ $json.userProfile.sensory_analysis }}"
+            },
+            {
+              "fieldId": "support_analysis",
+              "fieldValue": "={{ $json.userProfile.support_analysis }}"
+            }
+          ]
+        }
+      },
+      "id": "4185cd66-a3e5-4b9d-8614-8556890fcb75",
+      "name": "Save Profile (DB)",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        656,
+        -96
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "LMeYzkevwAsYfsPu",
+          "name": "Supabase account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $input.all()[0].json;\n\nif (prev.error && prev.error_code === \"MISSING_ANSWERS\") return [{json: prev}]; // الخطأ من البداية\n\nif (prev.error) { // خطأ في الداتابيز\n    return [{ \n        json: { \n            status: \"partial_success\", \n            severity: \"info\", \n            ui_message: \"تم إنشاء التقييم بنجاح، لكن ستحتاج لإعادته لاحقاً (الخادم مشغول).\", \n            data: prev \n        } \n    }];\n}\n\nreturn [{ \n    json: { \n        status: \"success\", \n        data: { \n            profile_id: prev.profile_id, \n            profile: prev \n        } \n    } \n}];"
+      },
+      "id": "5f3205e3-10f0-4eef-bbe2-7a71430fc26c",
+      "name": "Format Assess Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "061d961c-1c7c-4010-a925-ef45a7b4f96f",
+      "name": "Respond Assessment",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1104,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.all()[0].json;\nconst body = data.body || {};\nconst userProfile = body.user_profile || {};\n\n// التعديل هنا: المسار الجديد بيشاور على sensory_types و support_types\nconst sensoryTypes = userProfile.sensory_types?.types || [];\nconst supportTypes = userProfile.support_types?.types || [];\n\nreturn [{ json: { \n  status: \"success\",\n  profile_id: data.profile_id,\n  query_params: { \n      p_sensory_types: sensoryTypes, \n      p_support_types: supportTypes, \n      p_time_of_day: body.context?.time_of_day || null \n  }\n}}];"
+      },
+      "id": "5694207e-b87e-4ae9-ba50-22d2e42e5a66",
+      "name": "Analyze Needs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nlet activities = [];\nlet isFallback = false;\n\nif (items.length > 0 && items[0].json && items[0].json.id && !items[0].json.error) {\n    activities = items.map(i => i.json);\n} else {\n    isFallback = true;\n    activities = [\n        { name_ar: \"تمرين التنفس العميق\", description_ar: \"تمرين بسيط للاسترخاء (4-4-6)\", duration_minutes: 5, category: \"حسي\" },\n        { name_ar: \"الاستماع لموسيقى هادئة\", description_ar: \"استمع لموسيقى كلاسيكية في مكان هادئ\", duration_minutes: 15, category: \"سمعي\" },\n        { name_ar: \"تخفيف الإضاءة\", description_ar: \"اجلس في مكان بإضاءة خافتة ومريحة\", duration_minutes: 20, category: \"بصري\" }\n    ];\n}\n\nreturn [{ json: {\n    status: isFallback ? \"fallback\" : \"success\",\n    ui_message: isFallback ? \"تم استخدام الأنشطة البديلة\" : \"تم التخصيص بنجاح\",\n    severity: isFallback ? \"warning\" : \"info\",\n    data: { recommendations: activities, count: activities.length }\n}}];"
+      },
+      "id": "41a75422-032d-4d42-8aa7-562ad374993f",
+      "name": "Format Recs & Fallback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "44f67e27-3c27-4c30-8996-f5b33129cbdd",
+      "name": "Respond Recommendations",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2576,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $input.item.json;\nconst body = base.body || {}; \nconst binary = $input.item.binary || {}; // جلب طبقة الملفات الثنائية المرفوعة\n\n// تأمين جلب المعرفات من مختلف صيغ الـ Request\nconst profileId = body.profile_id || body.user_profile?.profile_id || body.body?.profile_id || \"unknown_user\";\nconst sessionId = body.session_id || body.body?.session_id || \"default_session\";\n\nlet inputType = 'text';\nlet content = body.message || body.text || '';\n\n// تصحيح عبقري: فحص لو الملف جاي كـ Binary File أو مبعوت كنص Base64\nif (body.audio || body.audioData || body.audio_data || binary.audio_data || binary.audio) {\n    inputType = 'audio';\n    // إذا لم يرسل نص مصاحب، نضع دلالة نصية للـ Pipeline\n    content = body.message || body.text || \"رسالة صوتية واردة\";\n} else if (body.image || body.imageData || body.image_url || binary.image_data || binary.image) {\n    inputType = 'image';\n    content = body.message || body.text || \"صورة واردة\";\n}\n\nreturn { \n    json: { \n        session_id: sessionId, \n        profile_id: profileId, \n        input_type: inputType, \n        content: content, \n        original_body: body \n    },\n    binary: $input.item.binary // تمرير الملفات الثنائية للنودز التالية\n};"
+      },
+      "id": "1a753ced-5dc6-4e57-9c20-4d6c478ea81d",
+      "name": "Auto-Detect Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.input_type }}",
+                    "rightValue": "audio",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "8395a0d8-c401-4c8e-99b8-a444b76a99af"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "audio"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.input_type }}",
+                    "rightValue": "image",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "80e9d1b1-8fdf-49c7-bc86-bea340e827e3"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "image"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.input_type }}",
+                    "rightValue": "text",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "ef2492df-5113-449b-a446-d0349ff35415"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "text"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c0ccedf7-49fb-4dfb-8c4f-a6a5920fb28e",
+      "name": "Input Type Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -16,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $(\"Auto-Detect Input\").first().json;\nconst text = $input.item.json.text;\nif (!text) {\n    return [{ json: { ...base, content: \"(لم يتم فهم الصوت)\", stt_failed: true } }];\n}\nreturn [{ json: { ...base, content: text } }];"
+      },
+      "id": "6c04da7c-3207-4e62-992e-adde8f94375f",
+      "name": "Format STT Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "=You are \"Sanad\" (سند), a friendly, calm, and respectful support assistant. The user is sharing an image with you.\n\nSafety rules:\n- You are NOT a medical or diagnostic system.\n- Do NOT mention: autism, disorders, diagnosis, anxiety, anxious, depression, therapy, medication, treatment.\n- Do NOT give medical advice. Do NOT shame or judge the user.\n- No roleplay. Do NOT pretend you are physically with the user.\n- If the user mentions self-harm, tell them to get help from a trusted adult or emergency services.\n\nResponse rules (VERY IMPORTANT):\n1. Analyze the image CAREFULLY and describe what you see in detail. Mention the main subjects, the background, and the overall atmosphere or mood of the picture, regardless of what the image contains.\n2. If it is a normal object, hobby, or general picture, start by describing these visual details enthusiastically, then react naturally like a friend sharing an interest. Do NOT force a mental health conversation.\n3. If the image clearly shows sadness, stress, or a quote about feelings, acknowledge the specific details you see gently, then use a warm, supportive tone.\n4. Reply strictly in Egyptian Arabic.\n5. Keep it conversational but detailed (2 to 4 sentences).\n6. End your message with: <END>"
+            },
+            {
+              "type": "HumanMessagePromptTemplate",
+              "messageType": "imageBinary",
+              "binaryImageDataKey": "image_data"
+            },
+            {
+              "type": "HumanMessagePromptTemplate",
+              "message": "=سجل المحادثة السابقة:\n{{ $json.db_history_string }}\n\nسؤال المستخدم الحالي حول الصورة:\n{{ $json.content || \"ماذا ترى في الصورة؟\" }}"
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "id": "a10abc1e-9a1e-4f9d-9762-5c0acb591644",
+      "name": "Image Analysis Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1472,
+        1024
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $(\"Auto-Detect Input\").first().json;\nconst ai_msg = $input.item.json.output || $input.item.json.text || \"عذراً، لم أتمكن من تحليل الصورة حالياً.\";\nreturn [{ json: { \n    session_id: base.session_id, profile_id: base.profile_id, input_type: \"image\", \n    user_message: base.content, ai_response: ai_msg, response_type: \"image_analysis\" \n} }];"
+      },
+      "id": "5fa8035d-eff2-45f0-a7c7-bfe2af723620",
+      "name": "Format Image Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const historyRows = $input.all().map(item => item.json).filter(j => j.message_type);\nconst sortedHistory = historyRows.reverse();\nlet historyText = \"\";\nsortedHistory.forEach(msg => { historyText += `${msg.message_type === 'user' ? 'User' : 'Sanad'}: ${msg.content}\\n`; });\n\n// Get base data from Text or STT\nlet base;\ntry { base = $(\"Format STT Text\").first().json; } catch(e) {}\nif (!base) base = $(\"Auto-Detect Input\").first().json;\n\nreturn [{ json: { ...base, db_history_string: historyText || \"لا يوجد تاريخ.\" } }];"
+      },
+      "id": "2f322a71-2150-47da-8c62-2e855c876ec6",
+      "name": "Format Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.item.json;\nconst msg = (data.content || '').toLowerCase();\nlet intent = \"chatbot\";\n\nconst recs_keywords = ['نشاط', 'أنشطة', 'اقترح', 'توصية', 'نصيحة', 'ألعاب', 'أعمل إيه', 'أهدى', 'استرخاء'];\nconst support_keywords = ['صوت', 'عالي', 'مزعج', 'خايف', 'قلق', 'ملمس', 'يؤلمني', 'مش قادر', 'متوتر', 'حزين'];\n\n// إذا كان نوع المدخل صورة، يتم توجيهه لمسار معالجة الصور فوراً بعد شحن الذاكرة\nif (data.input_type === 'image') {\n    intent = \"image\";\n} else if (recs_keywords.some(k => msg.includes(k))) {\n    intent = \"recs\";\n} else if (support_keywords.some(k => msg.includes(k))) {\n    intent = \"immediate\";\n}\n\nreturn [{ json: { ...data, classified_intent: intent } }];"
+      },
+      "id": "387284c8-1072-4d20-9add-734f3d1552c5",
+      "name": "Intent Classifier",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.classified_intent }}",
+                    "rightValue": "recs",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "c4ba787d-06fd-497d-ab9a-3af81d4f5a7a"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "recs"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.classified_intent }}",
+                    "rightValue": "immediate",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "122e7a8d-dae4-49b3-ba18-f41d56332b34"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "immediate"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.classified_intent }}",
+                    "rightValue": "chatbot",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "5335ec4b-d2e7-47b1-a05e-06dc70f3dbb3"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "chatbot"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "271e629d-8b81-4a01-8b7f-b5b6f32d3370",
+                    "leftValue": "={{ $json.classified_intent }}",
+                    "rightValue": "image",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "image"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c0ab2697-eaec-469e-9fd6-a567741a9856",
+      "name": "Intent Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1328,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $input.item.json;\nreturn [{ json: { \n  profile_id: prev.profile_id,\n  body: { user_profile: prev.original_body?.user_profile || {}, context: { time_of_day: \"afternoon\" } }\n}}];"
+      },
+      "id": "476f9191-cd47-4531-a878-fe691d928adc",
+      "name": "Prepare Recs Loopback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1616,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.item.json;\nconst ai_msg = \"أنا أفهم أنك تشعر بالانزعاج الآن. خذ نفساً عميقاً معي، أنا هنا لمساعدتك. حاول الابتعاد عن مصدر الإزعاج.\";\nreturn [{ json: { \n    session_id: data.session_id, profile_id: data.profile_id, input_type: data.input_type, \n    user_message: data.content, ai_response: ai_msg, response_type: \"immediate_support\" \n} }];"
+      },
+      "id": "0d251d0f-d938-444e-9636-bed1b2923bdc",
+      "name": "Provide Immediate Support",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Intent Switch').first().json;\n\n// استخراج النص الأصلي\nconst raw_msg = $input.item.json.output || $input.item.json.text || \"عذراً، أواجه صعوبة في الرد الآن. (النظام قيد التحديث)\";\n\n// التنظيف الشامل للنص\nlet ai_msg = raw_msg;\nif (typeof raw_msg === 'string') {\n  ai_msg = raw_msg\n    .replace(/\\\\n/g, ' ')      // مسح كلمة \\n لو مبعوتة كنص حرفي\n    .replace(/\\n/g, ' ')       // مسح السطر الجديد الفعلي\n    .replace(/\\r/g, ' ')       // مسح أي فواصل سطور تانية\n    .replace(/\\*\\*/g, '')      // مسح نجوم البولد **\n    .replace(/\\s{2,}/g, ' ')   // تحويل أي مسافات كبيرة لـ مسافة واحدة بس\n    .trim();                   // مسح المسافات من أول وآخر الجملة\n}\n\nreturn [{ json: {\n  session_id: data.session_id, \n  profile_id: data.profile_id,\n  input_type: data.input_type,\n  user_message: data.content, \n  ai_response: ai_msg, \n  response_type: \"ai_agent\",\n  has_error: !!$input.item.json.error\n} }];"
+      },
+      "id": "9a178466-1459-4a55-a9ec-f1740226412b",
+      "name": "Format Agent Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $input.item.json }];"
+      },
+      "id": "0c926040-a8be-4070-a89f-58e69a8c1e51",
+      "name": "Merge Chat Outputs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2128,
+        624
+      ],
+      "notes": "نقطة التجميع الموحدة للصور، الطوارئ، والمحادثة"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.input_type }}",
+                    "rightValue": "audio",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "c8803631-14d5-46b4-9c2d-3182d8925945"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "generate_audio"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "202a7745-b61d-4e78-bd68-1a172e0e635d",
+                    "leftValue": "={{ $json.input_type }}",
+                    "rightValue": "text",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "text"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": 1
+        }
+      },
+      "id": "d6edd61b-2870-4cee-9da3-b5cc91c11c2a",
+      "name": "Check TTS Needed",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        2352,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "speech",
+        "voice": {
+          "__rl": true,
+          "value": "EXAVITQu4vr4xnSDxMaL",
+          "mode": "list",
+          "cachedResultName": "Sarah - Mature, Reassuring, Confident"
+        },
+        "text": "={{ $json.ai_response }}",
+        "additionalOptions": {
+          "model": {
+            "__rl": true,
+            "value": "eleven_multilingual_v2",
+            "mode": "list",
+            "cachedResultName": "Eleven Multilingual v2"
+          }
+        },
+        "requestOptions": {}
+      },
+      "id": "fbd0dd77-7b71-4084-bb78-7ba025a17fe8",
+      "name": "Generate TTS",
+      "type": "@elevenlabs/n8n-nodes-elevenlabs.elevenLabs",
+      "typeVersion": 1,
+      "position": [
+        2576,
+        368
+      ],
+      "credentials": {
+        "elevenLabsApi": {
+          "id": "ismNqfmqRHeVYEj4",
+          "name": "ElevenLabs account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "9d2d5655-2dba-4430-9517-7d283c3dbeb5",
+      "name": "Respond Audio Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2800,
+        624
+      ],
+      "notes": "الرد بصوت + JSON"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $(\"Merge Chat Outputs\").first().json;\n\n// استخراج المعرفات الموثوقة من سياق الإدخال\nconst userId = base.profile_id || \"user_test_123\";\nconst sessionId = base.session_id || \"session_test_123\";\n\n// تنظيف وتطهير رسالة المستخدم قبل تخزينها لحماية سياق الذاكرة المستقبلي\nlet userMessageClean = base.user_message || \"\";\n\nif (base.input_type === 'image') {\n    // بدلاً من حفظ كود الصورة الطويل أو الـ Base64، بنحفظ دلالة نصية يفهمها الـ LLM لاحقاً\n    userMessageClean = \"[المستخدم أرسل صورة قام السيستم بتحليلها بنجاح]\";\n} else if (base.input_type === 'audio') {\n    // للتأكد أن ما يتم حفظه هو تفريغ الصوت النصي الصافي (STT) وليس مسار الملف\n    userMessageClean = base.user_message || \"[رسالة صوتية مفرغة]\";\n}\n\nreturn [\n  { json: { \n      session_id: sessionId, \n      profile_id: userId, \n      message_type: 'user', \n      content: userMessageClean, \n      route: 'chat',\n      metadata: { \"intent\": base.response_type }\n  } },\n  { json: { \n      session_id: sessionId, \n      profile_id: userId, \n      message_type: 'assistant', \n      content: base.ai_response, \n      route: 'chat',\n      metadata: { \"intent\": base.response_type }\n  } }\n];"
+      },
+      "id": "8bf9adda-c941-4f8e-ab75-2f95844dd0d6",
+      "name": "Prep Chat for DB",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "chat_history",
+        "dataToSend": "autoMapInputData"
+      },
+      "id": "b2135169-6298-4704-b608-e04f036a8141",
+      "name": "Save Chat (DB)",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        3472,
+        624
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "LMeYzkevwAsYfsPu",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://snusxhzjtzilcpnckwzn.supabase.co/rest/v1/rpc/get_recommended_activities",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_sensory_types\": {{ JSON.stringify($json.query_params.p_sensory_types) }},\n  \"p_support_types\": {{ JSON.stringify($json.query_params.p_support_types) }},\n  \"p_time_of_day\": \"{{ $json.query_params.p_time_of_day }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2128,
+        128
+      ],
+      "id": "34ed3d11-c5b7-47f2-ad6a-74be8a43d62c",
+      "name": "HTTP Request",
+      "alwaysOutputData": false,
+      "credentials": {
+        "supabaseApi": {
+          "id": "LMeYzkevwAsYfsPu",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "chat_history",
+        "limit": 100,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "session_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.session_id }}"
+            }
+          ]
+        }
+      },
+      "id": "d28389fb-cce7-48fd-b5b7-49243394fa74",
+      "name": "Load Chat History (Supabase)",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        656,
+        464
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "LMeYzkevwAsYfsPu",
+          "name": "Supabase account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "model": "qwen/qwen2.5-vl-72b-instruct",
+        "options": {
+          "maxTokens": 200,
+          "temperature": 0.7
+        }
+      },
+      "id": "11a764ad-b04a-413e-a158-8c061e6636f1",
+      "name": "Text LLM1",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1488,
+        1248
+      ],
+      "credentials": {
+        "openRouterApi": {
+          "id": "umc8Ctnyw0kqtDp8",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "qwen/qwen3.6-plus",
+        "options": {
+          "maxTokens": 700
+        }
+      },
+      "id": "a799b2f5-b05b-4f71-9a48-934a8f6db235",
+      "name": "Text LLM2",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1632,
+        736
+      ],
+      "credentials": {
+        "openRouterApi": {
+          "id": "umc8Ctnyw0kqtDp8",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// استخراج الداتا اللي داخلة للنود\nconst inputData = $input.item.json;\n\n// تنظيف رسالة الـ AI\nlet aiMsg = inputData.ai_response || \"عذراً، حدث خطأ\";\naiMsg = aiMsg.replace(/<END>/g, \"\").trim();\n\n// إرجاع الـ JSON مع الحفاظ على كل البيانات (الـ ID والـ Session)\nreturn [{ \n  json: { \n    status: \"success\", \n    response_type: \"ai_agent\",\n    // هنا بنحتفظ بالـ ID والـ Session عشان النود اللي بعدك تشوفهم\n    session_id: inputData.session_id,\n    profile_id: inputData.profile_id,\n    user_message: inputData.user_message, // هنحتاجها في الـ DB\n    ai_response: aiMsg, // هنحتاجها في الـ DB\n  } \n}];"
+      },
+      "id": "f1ea0c16-a48b-4949-8662-132180192833",
+      "name": "Format AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2576,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "speech",
+        "operation": "speechToText",
+        "file": "audio_data",
+        "additionalOptions": {},
+        "requestOptions": {}
+      },
+      "type": "@elevenlabs/n8n-nodes-elevenlabs.elevenLabs",
+      "typeVersion": 1,
+      "position": [
+        208,
+        208
+      ],
+      "id": "02c25954-3efe-4654-9bec-78f4f5eef124",
+      "name": "Transcribe audio or video",
+      "credentials": {
+        "elevenLabsApi": {
+          "id": "mJ1GCGapmHFja6oB",
+          "name": "ElevenLabs account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://snusxhzjtzilcpnckwzn.supabase.co/rest/v1/rpc/upsert_user_profile",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_profile_id\": \"{{ $json.profile_id }}\",\n  \"p_language\": \"ar\",\n  \"p_social_analysis\": {{ JSON.stringify($json.social_analysis || {}) }},\n  \"p_sensory_analysis\": {{ JSON.stringify($json.sensory_analysis || {}) }},\n  \"p_support_analysis\": {{ JSON.stringify($json.support_analysis || {}) }}\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text",
+              "outputPropertyName": "={{ $json.ai_response }}"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3024,
+        624
+      ],
+      "id": "8037aa63-43f9-4ebb-9d68-41cd15c3766c",
+      "name": "Save Profile (DB)1",
+      "credentials": {
+        "supabaseApi": {
+          "id": "LMeYzkevwAsYfsPu",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "=You are \"Sanad\" (سند), a friendly, calm, and respectful text support assistant. You are chatting with the user. Adapt your tone to their emotional state.\n\nSafety rules:\n- You are NOT a medical or diagnostic system.\n- Do NOT mention: autism, disorders, diagnosis, anxiety, anxious, depression, therapy, medication, treatment.\n- Do NOT give medical advice. Do NOT shame or judge the user.\n- No roleplay.\n- If the user mentions self-harm, gently advise them to get help from a trusted adult or emergency services.\n\nText Response Rules (VERY IMPORTANT):\n1. PERSONA & LANGUAGE: You are 100% Egyptian. Think and respond DIRECTLY in natural, authentic Egyptian Arabic (عامية مصرية أصلية بتاعت الشارع والناس). Speak like a real, warm Egyptian friend (شاب مصري جدع وودود). \nWARNING: DO NOT translate idioms, expressions, or concepts from English to Arabic. Think in Egyptian cultural terms. Use natural flow (e.g., \"يا سيدي\", \"ولا يهمك\", \"يا بطل\", \"صباح الفل\").\n2. UNIVERSAL CONTEXT AWARENESS: \n   - If they are chatting about casual topics, daily events, work, study, or hobbies, engage naturally like a friend.\n   - ONLY use a \"comforting/therapy\" tone if the user explicitly expresses sadness, stress, fear, frustration, or asks for emotional help.\n3. FORMATTING: You ARE ALLOWED to use emojis (e.g., 😊, ☕, 💙) to make the chat friendly. You can use bold text to highlight encouraging words.\n4. Keep sentences clear, short, and smoothly connected. Structure: 1 warm opening -> 1 or 2 conversational thoughts -> 1 short, natural Egyptian question at the end to keep the chat going. (MAX 3-4 sentences total).\n5. End your message exactly with: <END>"
+            },
+            {
+              "type": "HumanMessagePromptTemplate",
+              "message": "=سجل المحادثة السابقة:\n{{ $json.db_history_string }}\n\nرسالة المستخدم الحالية:\n{{ $json.content }}"
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "id": "4a85f0ba-ea32-4e38-bda8-0effeabe6fc5",
+      "name": "text_chat Chain1",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1552,
+        512
+      ],
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Sanad Omni Webhook": {
+      "main": [
+        [
+          {
+            "node": "Master Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Master Router": {
+      "main": [
+        [
+          {
+            "node": "Main Route Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Main Route Switch": {
+      "main": [
+        [
+          {
+            "node": "Calc Social",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Analyze Needs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auto-Detect Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calc Social": {
+      "main": [
+        [
+          {
+            "node": "Calc Sensory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calc Sensory": {
+      "main": [
+        [
+          {
+            "node": "Calc Support",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calc Support": {
+      "main": [
+        [
+          {
+            "node": "Build Profile JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Profile JSON": {
+      "main": [
+        [
+          {
+            "node": "Save Profile (DB)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Profile (DB)": {
+      "main": [
+        [
+          {
+            "node": "Format Assess Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Assess Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Assessment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Needs": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Recs & Fallback": {
+      "main": [
+        [
+          {
+            "node": "Respond Recommendations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auto-Detect Input": {
+      "main": [
+        [
+          {
+            "node": "Input Type Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Input Type Switch": {
+      "main": [
+        [
+          {
+            "node": "Transcribe audio or video",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load Chat History (Supabase)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load Chat History (Supabase)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format STT Text": {
+      "main": [
+        [
+          {
+            "node": "Load Chat History (Supabase)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image Analysis Chain": {
+      "main": [
+        [
+          {
+            "node": "Format Image Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Image Response": {
+      "main": [
+        [
+          {
+            "node": "Merge Chat Outputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Context": {
+      "main": [
+        [
+          {
+            "node": "Intent Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intent Classifier": {
+      "main": [
+        [
+          {
+            "node": "Intent Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intent Switch": {
+      "main": [
+        [
+          {
+            "node": "Prepare Recs Loopback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Provide Immediate Support",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "text_chat Chain1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Image Analysis Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Recs Loopback": {
+      "main": [
+        [
+          {
+            "node": "Analyze Needs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Provide Immediate Support": {
+      "main": [
+        [
+          {
+            "node": "Merge Chat Outputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Agent Response": {
+      "main": [
+        [
+          {
+            "node": "Merge Chat Outputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Chat Outputs": {
+      "main": [
+        [
+          {
+            "node": "Check TTS Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check TTS Needed": {
+      "main": [
+        [
+          {
+            "node": "Generate TTS",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate TTS": {
+      "main": [
+        [
+          {
+            "node": "Respond Audio Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Respond Audio Webhook": {
+      "main": [
+        [
+          {
+            "node": "Save Profile (DB)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Chat for DB": {
+      "main": [
+        [
+          {
+            "node": "Save Chat (DB)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Format Recs & Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Chat History (Supabase)": {
+      "main": [
+        [
+          {
+            "node": "Format Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text LLM1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Image Analysis Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text LLM2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "text_chat Chain1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format AI Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Audio Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribe audio or video": {
+      "main": [
+        [
+          {
+            "node": "Format STT Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Profile (DB)1": {
+      "main": [
+        [
+          {
+            "node": "Prep Chat for DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "text_chat Chain1": {
+      "main": [
+        [
+          {
+            "node": "Format Agent Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "4e6adbe5-c60d-4f0b-963d-e2e7a8770656",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0eedbc3052815921b1680953ad92260cda124a1647952414ab15e356eb83b1b5"
+  },
+  "id": "Qn0WJYfDTefYbl5m",
+  "tags": []
+}
