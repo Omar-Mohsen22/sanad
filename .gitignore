@@ -1,0 +1,20 @@
+# Environment and credentials — never commit these
+.env
+.env.*
+*.key
+*.pem
+credentials.json
+
+# n8n local data
+.n8n/
+n8n-data/
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
